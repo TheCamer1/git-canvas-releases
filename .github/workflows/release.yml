@@ -77,3 +77,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${{ inputs.tag }}" dist/* --repo "$GITHUB_REPOSITORY" --title "${{ inputs.tag }}" --generate-notes
+      # Releases cut together share a creation time, so GitHub's "latest" can
+      # land on an older one: point it at the highest version.
+      - name: Mark the highest version latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          top=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' | sort -V | tail -n 1)
+          gh release edit "$top" --repo "$GITHUB_REPOSITORY" --latest
