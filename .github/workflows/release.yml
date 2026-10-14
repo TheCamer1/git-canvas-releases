@@ -1,0 +1,76 @@
+name: Release
+# Run manually: gh workflow run release.yml -f tag=v0.1.0
+# Builds the private TheCamer1/git-canvas source at that tag (public-repo
+# runners are free) and publishes the result as a release of this repo.
+# Needs the SOURCE_TOKEN secret: a fine-grained PAT with read-only Contents
+# on TheCamer1/git-canvas.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Source tag to build, e.g. v0.1.0
+        required: true
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, ext: zip }
+          - { os: macos-latest, target: aarch64-apple-darwin, ext: tar.gz }
+          - { os: macos-latest, target: x86_64-apple-darwin, ext: tar.gz }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, ext: tar.gz }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: TheCamer1/git-canvas
+          ref: ${{ inputs.tag }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Linux native libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - name: Tag matches Cargo.toml
+        shell: bash
+        run: test "v$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys;print(json.load(sys.stdin)["packages"][0]["version"])')" = "${{ inputs.tag }}"
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          name=gitcanvas-${{ matrix.target }}
+          mkdir "$name"
+          cp README.md "$name"/
+          if [ "${{ runner.os }}" = Windows ]; then
+            cp target/${{ matrix.target }}/release/gitcanvas.exe "$name"/
+            7z a "$name.zip" "$name" >/dev/null
+          else
+            cp target/${{ matrix.target }}/release/gitcanvas "$name"/
+            tar czf "$name.tar.gz" "$name"
+          fi
+          sha256sum "$name.${{ matrix.ext }}" > "$name.${{ matrix.ext }}.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: gitcanvas-*
+      - name: Keep install scripts
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers
+          path: tools/install.*
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ inputs.tag }}" dist/* --repo "$GITHUB_REPOSITORY" --title "${{ inputs.tag }}" --generate-notes
