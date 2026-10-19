@@ -34,7 +34,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
       - name: Tag matches Cargo.toml
         shell: bash
-        run: test "v$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys;print(json.load(sys.stdin)["packages"][0]["version"])')" = "${{ inputs.tag }}"
+        run: test "v$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys;print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="twigit"))')" = "${{ inputs.tag }}"
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
         shell: bash
